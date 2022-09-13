@@ -1,0 +1,22 @@
+[package]
+name = "serve-gg2"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+axum = "0.5.13"
+axum-extra = { version = "0.3.7", features = ["spa"] }
+clap = { version = "3.2.16", features = ["derive"] }
+lazy_static = "1.4.0"
+md5 = "0.7.0"
+regex = "1.6.0"
+serde = { version = "1.0.141", features = ["derive"] }
+serde_json = "1.0.82"
+sqlx = { version = "0.6.0", features = [ "runtime-tokio-rustls", "sqlite" ] }
+tokio = { version = "1.20.1", features = ["full"] }
+tower-http = "0.3.4"
+tracing = "0.1.36"
+tracing-subscriber = { version = "0.3.15", features = ["env-filter"] }
+

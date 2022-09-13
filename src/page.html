@@ -1,0 +1,724 @@
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.0.2/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-EVSTQN3/azprG1Anm3QDgpJLIm9Nao0Yz1ztcQTwFspd3yD65VohhpuuCOmLASjC" crossorigin="anonymous">
+    <title>Greengenes development server</title>
+    <meta name="theme-color" content="#7952b3">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/openlayers/openlayers.github.io@master/en/v6.15.1/css/ol.css" type="text/css">
+    <link rel="stylesheet" href="//code.jquery.com/ui/1.13.2/themes/base/jquery-ui.css">
+    <style>
+      .map {
+        height: 400px;
+        width: 100%;
+      }
+
+      .bd-placeholder-img {
+        font-size: 1.125rem;
+        text-anchor: middle;
+        -webkit-user-select: none;
+        -moz-user-select: none;
+        user-select: none;
+      }
+
+      @media (min-width: 768px) {
+        .bd-placeholder-img-lg {
+          font-size: 3.5rem;
+        }
+      }
+      main > .container {
+        padding: 60px 15px 0;
+      }
+      
+      table {
+        border-spacing: 20px;
+        table-layout: fixed; 
+        width: 100%;
+      }
+      td {
+        word-wrap: break-word;
+        padding:0 15px 0 15px;
+      }
+
+      /* to avoid clipping with arrangement of navbar
+      https://stackoverflow.com/a/16918323/19741
+      */
+      .ui-dialog { z-index: 2000 !important ;}
+      .ui-front { z-index: 2000 !important; }
+
+    </style>
+    <script src='/static/vendor/plotly-2.12.1/plotly-2.12.1.min.js'></script>
+    <script src="/static/vendor/ol-6.15.1/ol.js"></script>
+    <script src="/static/vendor/jquery-3.6.0/jquery-3.6.0.js"></script>
+    <script src="/static/vendor/jquery-ui-1.13.2/jquery-ui.js"></script>
+    <script>
+    var version = '2022.8';
+    
+    // https://stackoverflow.com/a/38297729/19741
+    async function fetchAsync (url) {
+        let response = await fetch(url);
+        let data = await response.json();
+        return data;
+    }
+
+    function clade_lookup(term) {
+        return fetchAsync(server + '/clade-lookup/' +  term);
+    }
+
+    function create_map(divname, rbdata) {
+        if (typeof rbdata === 'undefined') {
+            return;
+        }
+
+        var iconFeatures = []
+        var last = []
+        for(let i = 0; i < rbdata.length; i++) {
+            var lng = rbdata[i][1];
+            var lat = rbdata[i][0];
+            last = [lng, lat];
+            var point = new ol.geom.Point(ol.proj.transform([lng, lat], 'EPSG:4326', 'EPSG:3857'));
+            iconFeatures.push(new ol.Feature({geometry: point}));
+        }
+
+        var vectorSource = new ol.source.Vector({ features: iconFeatures });
+        var vectorLayer = new ol.layer.Vector({ source: vectorSource });
+        var center = last;
+
+        var map = new ol.Map({
+        target: divname,
+        layers: [
+          new ol.layer.Tile({
+            source: new ol.source.OSM()
+          }),
+          vectorLayer
+        ],
+        view: new ol.View({
+          center: ol.proj.fromLonLat(center),
+          zoom: 1
+        })
+      });
+    }
+
+    function plotly_data(divname, category_data) {
+            if (typeof category_data === 'undefined') {
+                return;
+            }
+
+            var div = document.getElementById(divname);
+            var layout = {
+                autosize: true
+            };
+
+            // iterate over data, store values and labels, do the thing here:
+            // https://plotly.com/javascript/pie-charts/
+            for (const [k, v] of Object.entries(category_data)){
+                if (k.includes('latitude')) {
+                    continue;
+                }
+                if (Object.keys(v).length === 0) {
+                    continue;
+                }
+
+                var trace_values = [];
+                var trace_labels = [];
+                for (const [key, value] of Object.entries(v)) {
+                    trace_values.push(value);
+                    trace_labels.push(key);
+                }
+                var trace_data = {
+                    values: trace_values,
+                    labels: trace_labels,
+                    type: 'pie',
+                    name: k,
+                    title: k
+                };
+
+                var piediv = document.createElement('div');
+                piediv.setAttribute('id', 'result-div-' + k);
+                div.appendChild(piediv);
+                Plotly.newPlot('result-div-' + k, [trace_data], layout);
+            }
+        }
+
+    function linkify(id) {
+        const gtdb = /G\d{9}/;
+        const asv = /[ATGC]{90}/;
+        const silva = /[A-Z][A-Z0-9]?\d+\.\d+\.\d+/;
+        const operon = /M.\d{3}.*-barcode\d+-umi\d+bins-ubs-\d/;
+        const lineage = /d__.*; p__.*; c__.*; o__.*; f__.*; g__.*; s__.*/;
+        const asv_id = /^\d+$/;
+
+        var url = "";
+        var is_lineage = false;
+        if (gtdb.test(id)) {
+            url = 'https://gtdb.ecogenomic.org/searches?s=al&q=' + id;
+        } else if (operon.test(id)) {
+            url = "";  // don't have anything we can do right now with this
+        } else if (asv.test(id)) {
+            url = server + '/search?id=' + id + '&version=' + version;
+        } else if (silva.test(id)) {
+            url = 'https://www.ncbi.nlm.nih.gov/nuccore/' + id.split('.')[0];
+        } else if (lineage.test(id)) {
+            url = linkify_lineage(id);
+            is_lineage = true;
+        } else if (asv_id.test(id)) {
+            url = "";
+        } else {
+            // this is ltp
+            url = 'https://www.ncbi.nlm.nih.gov/nuccore/' + id;
+        }
+
+        if (url.length > 0) {
+            var a = document.createElement('a');
+            var linkText = document.createTextNode(id);
+            a.appendChild(linkText);
+            a.target = "_blank";
+
+            if (is_lineage) {
+                a.innerHTML = url;
+            } else {
+                a.title = id;
+                a.href = url;
+            }
+            return a;
+        } else {
+            var span = document.createElement('span');
+            span.innerHTML = id;
+            return span;
+        }
+    }
+
+    function simple_span(div, label, text) {
+        var span = document.createElement('span');
+        div.appendChild(span);
+        span.innerHTML = '<b>' + label + ': </b>';
+        span.appendChild(document.createTextNode(text));
+        span.classList.add('text-break');
+        div.appendChild(document.createElement('br'));
+    }
+
+    function searched_for_asv(div, data) {
+        var span = initialize_section(div, 'asv_summary', 'ASV Summary', true);
+        simple_span(div, 'Searched for ASV', data.asv);
+        simple_span(div, 'Sequence MD5', data.md5);
+        simple_span(div, 'Sequence ID', data.id);
+        simple_span(div, 'Lineage', data.lineage);  // TODO: linkify lineage for lookup
+        simple_span(div, 'Number of multifurcation members', data.multifurcation_members);
+        div.appendChild(document.createElement('br'));
+    }
+
+    function full_length_containing_asv(div, data) {
+        var span = initialize_section(div, 'full_length_containing', 'Full Length Representation', false);
+
+        if (data.observed_in_full_length.length === 0) {
+            span.appendChild(document.createTextNode('No full length records contain this exact ASV.'));
+            div.appendChild(document.createElement('br'));
+            div.appendChild(document.createElement('br'));
+        } else {
+            span.appendChild(document.createTextNode('Full length records containing this exact ASV: '));
+            div.appendChild(tableize(data.observed_in_full_length, 'Record ID' , 'Lineage'));
+        }
+    }
+
+    function listify_identifiers(div, data) {
+        var ul = document.createElement('ul');
+        div.appendChild(ul);
+        for(let i = 0; i < data.length; i++) {
+            var li = document.createElement('li')
+            ul.appendChild(li);
+            node = linkify(data[i]);
+            if (node === null) {
+                li.innerHTML = data[i];
+            } else {
+                li.appendChild(node);
+            }
+        }
+    }
+
+    /*function full_length_within_clade(div, data) {
+        var span = initialize_section(div, 'full_length_in_enclosing', 'Full Length Within Enclosing Clade', false);
+        console.log(data);
+        if (data.full_length_in_enclosing_clade.length === 0) {
+            span.appendChild(document.createTextNode('No full length records are contained in this clade.'));
+            div.appendChild(document.createElement('br'));
+            div.appendChild(document.createElement('br'));
+        } else {
+            span.appendChild(document.createTextNode('Full length records within clade: '));
+            listify_identifiers(div, data.full_length_in_enclosing_clade);
+        }
+    }*/
+
+    function redbiom_sample_command(div, data) {
+        var span = initialize_section(div, 'redbiom_sample_command', 'Fetch Public Samples Containing this ASV', false);
+
+        var span = document.createElement('span');
+        div.appendChild(span);
+        span.appendChild(document.createTextNode('The command below will search redbiom for public samples ' +
+                                                 'that contain this exact ASV. The returned sample set can be ' +
+                                                 'downloaded as a BIOM feature table. The sample set can also be ' +
+                                                 'used to obtain the associated sample metadata.'))
+        div.appendChild(document.createElement('br'));
+        div.appendChild(document.createElement('br'));
+
+        var pre = document.createElement('pre');
+        var code = document.createElement('code');
+        pre.appendChild(code);
+        div.appendChild(code);
+        code.innerHTML = '$ echo ' + data.asv + ' | redbiom search features --context ' + data.redbiom.context;
+        div.appendChild(document.createElement('br'));
+        div.appendChild(document.createElement('br'));
+    }
+
+    function redbiom_to_plotly(div, data) {
+        var piediv = document.getElementById('redbiom-div');
+        initialize_section(piediv, 'redbiom_plotly', 'redbiom public sample summaries', false);
+
+        //var span = document.createElement('span');
+        //piediv.append(span);
+        //span.appendChild(document.createTextNode('redbiom public sample summaries: '));
+        plotly_data("redbiom-div", data.redbiom.summary);
+    }
+
+    function redbiom_to_ol(div, data) {
+        if (typeof data.redbiom.summary === 'undefined') {
+            return;
+        }
+
+        var mapdiv = document.getElementById('redbiom-map');
+
+        initialize_section(mapdiv, 'redbiom_ol_map', 'redbiom public sample locations', false);
+
+        //var span = document.createElement('span');
+        //mapdiv.append(span);
+        //span.appendChild(document.createTextNode('redbiom public sample locations: '));
+        create_map('redbiom-map', data.redbiom.summary.latitude_longitude);
+    }
+
+    function describe_asv_data(data) {
+        var div = document.getElementById('result');
+        searched_for_asv(div, data);
+        full_length_containing_asv(div, data);
+        redbiom_sample_command(div, data);
+        redbiom_to_plotly(div, data);        
+        redbiom_to_ol(div, data);
+    }
+
+    function clade_warnings(data) {
+        div = document.getElementById('warnings');
+        if(data.clades.length > 1) {
+            var warning = document.createElement('div')
+            warning.classList.add("alert");
+            warning.classList.add("alert-primary");
+            warning.classList.add('mt-5');
+            warning.setAttribute('role', 'alert');
+            warning.innerText = 'Species is polyphyletic; WARNING: in this beta server, we are only showing detail for a single clade';
+            div.appendChild(warning);
+        }
+
+        if(Object.keys(data.clades[0].out_clade_lineages).length != 0) {
+            var warning = document.createElement('div')
+            warning.classList.add("alert");
+            warning.classList.add("alert-danger");
+            warning.classList.add('mt-5');
+            warning.setAttribute('role', 'alert');
+            warning.innerText = '16S V4 region is not species specific';
+            div.appendChild(warning);
+        } else {
+            var warning = document.createElement('div')
+            warning.classList.add("alert");
+            warning.classList.add("alert-success");
+            warning.classList.add('mt-5');
+            warning.setAttribute('role', 'alert');
+            warning.innerText = '16S V4 region appears species specific';
+            div.appendChild(warning);           
+        }
+    }
+
+    function searched_for_clade(div, data) {
+        var span = initialize_section(div, 'clade_summary', 'Clade Summary', true);
+        simple_span(div, 'Lineage', data.clades[0].lineage);   // TODO: linkify lineage for lookup
+        simple_span(div, 'Species', data.clades[0].name);
+        simple_span(div, 'Number of clades', data.clades.length);
+        div.appendChild(document.createElement('br'));
+    }
+
+    function isolates_without_observed_emp_v4(div, data) {
+        var span = initialize_section(div, 'isolates_no_emp_v4', 'Isolates without observed EMP V4', false);
+
+        if(data.clades[0].unobserved_v4_isolate_fragments.length === 0) {
+            span.innerHTML = 'All GTDB and LTP records within this species have V4 sequence associated with the ' +
+                             'EMP primers that has been observed by Greengenes.';
+
+        } else {
+            span.innerHTML = 'The following GTDB and/or LTP records contain a V4 sequence in which the EMP primers ' + 
+                             'hybridize to <i>in silico</i>, however the associated V4 sequence has not been observed ' +
+                             'within Greengenes: '
+            listify_identifiers(div, data.clades[0].unobserved_v4_isolate_fragments);
+        }
+    }
+
+    function initialize_section(div, a_name, header_text, is_page_header) {
+        var a = document.createElement('a');
+        a.name = a_name;
+        div.appendChild(a);
+
+        if (is_page_header) {
+            var h = document.createElement('h1');
+        } else {
+            var h = document.createElement('h3');
+        }
+        h.classList.add('mt-5');
+        h.innerHTML = header_text;
+        div.appendChild(h);
+
+        var span = document.createElement('span');
+        div.appendChild(span);
+        return span;
+    }
+
+    function isolates_putative_emp_v4(div, data) {
+        var span = initialize_section(div, 'isolates_putative_emp_v4', 'Putative Isolate EMP V4', false);
+        
+        if(data.clades[0].observed_v4_isolate.length === 0) {
+            span.innerHTML = 'None of the GTDB and LTP records in this clade contain V4 sequence associated with ' +
+                             'an <i>in silico</i> hybridization of the EMP primers.'
+        } else {
+            span = document.createElement('span');
+            div.appendChild(span);
+            span.innerHTML = 'The following GTDB and LTP records have V4 sequence that can be extracted ' +
+                             '<i>in silico</i> using the EMP primers:'
+            div.appendChild(document.createElement('br'));
+            div.appendChild(tableize(data.clades[0].observed_v4_isolate, 'Isolate', 'Putative EMP V4'));
+        }
+        div.appendChild(document.createElement('br'));
+    }
+
+    function observed_asvs(div, data) {
+        var span = initialize_section(div, 'observed_asv', 'Observed Amplicon Sequence Variants', false);
+
+        if (data.clades[0].observed_v4_fragment.length === 0) {
+            span.innerHTML = 'No observed V4 ASVs from public or private samples in redbiom are contained in this clade.';
+        } else {
+            span.innerHTML = 'The following ASVs were observed within this clade: ';
+            div.appendChild(document.createElement('br'));
+            div.appendChild(tableize(data.clades[0].observed_v4_fragment, 'Record ID', 'Amplicon Sequence Variant'));
+        }
+        div.appendChild(document.createElement('br'));
+    }
+
+    function within_clade_records_with_clade_asv(div, data) {
+        var span = initialize_section(div, 'within_clade_records_with_asv', 'Full Length Containing an ASV', false);
+        
+        if(data.clades[0].in_clade_matching_v4_fragment_and_full_length.length === 0){
+            span.innerHTML = 'No full length records in this clade were observed by ASV.';
+        } else {
+            span.innerHTML = 'The V4 regions of the following full length records were observed by ASVs. ' +
+                             'Please note the full V4 region is shown, however we may only have evidence for a portion of ' +
+                             'the 5\' region (e.g., if only observed with a 150nt fragment):';
+            div.appendChild(document.createElement('br'));
+            div.appendChild(tableize(data.clades[0].in_clade_matching_v4_fragment_and_full_length, 
+                            'Full length record ID', 'Amplicon Sequence Variant'));
+        }
+        div.appendChild(document.createElement('br'));
+    }
+
+    function outside_clade_records_with_clade_asv(div, data) {
+        span = initialize_section(div, 'outside_clade_records_with_asv', 'Full Length Outside of Clade', false);
+        
+        if(data.clades[0].out_clade_matching_v4_fragment_and_full_length.length === 0) {
+            span.innerHTML = 'No full length records outside of this species contain identical V4 sequence. ' +
+                             'In other words, the V4 regions of this clade appear to be ' +
+                             '<b>exclusive to this species</b>.';
+        } else {
+            span.innerHTML = 'Full length records outside of this species contain identical V4. ' +
+                             'In other words, the V4 regions of this clade <b>are not unique ' +
+                             'to this species</b>:'
+            div.appendChild(document.createElement('br'));
+            div.appendChild(tableize(data.clades[0].out_clade_matching_v4_fragment_and_full_length, 
+                            'Full length record ID', 'Amplicon Sequence Variant'));
+        }
+        div.appendChild(document.createElement('br'));
+        div.appendChild(document.createElement('br'));
+    }
+
+    function v4_lineages_outside_clade(div, data) {
+        span = initialize_section(div, 'v4_lineages_outside', 'Lineages of External Isolates with Matching V4', false);
+
+        // note we test out_clade_matching_v4_fragment_and_full_length here as it's a simpler structure, 
+        // and we can only have lineages outside if we have matches outside...
+        if(data.clades[0].out_clade_matching_v4_fragment_and_full_length.length === 0) {
+            span.innerHTML = 'No full length records outside of this clade contain V4 sequence. ' +
+                             'In other words, the V4 regions of this clade appear to be ' +
+                             '<b>exclusive to this clade</b>.';
+        } else {
+            span.innerHTML = 'Please find a lineage summary of records outside of this clade which contain identical V4 ' +
+                             'to full length records within this clade:';
+            div.appendChild(document.createElement('br'));
+            div.appendChild(tableize_outclade_lineages(data.clades[0].out_clade_lineages, 
+                            'Lineage', 'Isolate V4'));
+        }
+        div.appendChild(document.createElement('br'));
+        div.appendChild(document.createElement('br'));
+    }
+
+    function describe_clade_data(data) {
+        var div = document.getElementById('result');
+        clade_warnings(data);
+        searched_for_clade(div, data);        
+        //isolates_without_observed_emp_v4(div, data);  // this output does not seem correct and conflicts with "within_clade_records_woth_clade_asv"
+        isolates_putative_emp_v4(div, data);
+        observed_asvs(div, data);
+        within_clade_records_with_clade_asv(div, data);
+        outside_clade_records_with_clade_asv(div, data);
+        v4_lineages_outside_clade(div, data);
+        redbiom_to_plotly(div, data.clades[0]);        
+        redbiom_to_ol(div, data.clades[0]);
+    }
+    
+    function linkify_lineage(lin) {
+        var parts = lin.split('; ');
+        var result = '';
+        for(let i = 0; i < (parts.length - 1); i++) {
+            result += parts[i];
+            result += '; ';
+        }
+
+        var last = parts[parts.length - 1];
+        if (last == 's__' || last.length <= 3) {
+            result += last;
+        } else {
+            result += search_link(last).outerHTML;
+        }
+        return result
+    }
+
+    function tableize_outclade_lineages(data, leftcol, rightcol) {
+        var table = document.createElement('table');
+        table.classList.add('table');
+        var tr = table.insertRow();
+        var td = tr.insertCell();
+        td.appendChild(document.createTextNode(leftcol));              
+        var td = tr.insertCell();
+        td.appendChild(document.createTextNode(rightcol));
+
+        for (const [k, v] of Object.entries(data)) {  
+            var idnode = linkify(k); 
+            var tr = table.insertRow();
+            var td = tr.insertCell();
+            td.style = "";
+            var lineages = v.map(linkify_lineage);
+            td.innerHTML = lineages.join('<br>');
+            var td = tr.insertCell();
+            td.style = "";
+            td.appendChild(idnode);
+        }
+        return table;
+    }
+
+    function tableize(data, leftcol, rightcol) {
+        var outerdiv = document.createElement('div');
+        var innerdiv = document.createElement('div');
+        var tablediv = document.createElement('div');
+
+        tablediv.classList.add('card');
+        tablediv.classList.add('card-body');
+
+        // TODO: have an actually safe ID
+        innerdiv.id = 'tableize-' + Math.floor(Math.random() * 1000000);        
+        innerdiv.classList.add('collapse');
+
+        var button = document.createElement('button');
+        button.innerText = 'Expand...';
+        button.classList.add('btn');
+        button.classList.add('btn-primary');
+        button.type = 'button';
+        button.setAttribute('data-bs-toggle', 'collapse');
+        button.setAttribute('data-bs-target', '#' + innerdiv.id);
+        button.setAttribute('aria-expanded', 'false');
+        button.setAttribute('aria-controls', innerdiv.id);
+        outerdiv.appendChild(button)
+
+        var table = document.createElement('table');
+        tablediv.appendChild(table);
+        innerdiv.appendChild(tablediv);
+        outerdiv.appendChild(innerdiv);
+
+        table.classList.add('table');
+        var tr = table.insertRow();
+        var td = tr.insertCell();
+        td.appendChild(document.createTextNode(leftcol));              
+        var td = tr.insertCell();
+        td.appendChild(document.createTextNode(rightcol));
+
+        for(let j = 0; j < data.length; j++) {
+            var isolate = data[j];
+            var id = isolate[0];
+            var seq = isolate[1];
+            var idnode = linkify(id);
+            var seqnode = linkify(seq);
+            
+            var tr = table.insertRow();
+            var td = tr.insertCell();
+            td.style = "";
+            td.appendChild(idnode);
+            var td = tr.insertCell();
+            td.style = "";
+            td.appendChild(seqnode);
+        }
+        return outerdiv;
+    }
+
+    function describe_error(data) {
+        var div = document.getElementById('result');
+        span = initialize_section(div, 'Error', 'An error occurred', true);
+        span.innerHTML = data.error;
+    }
+
+    function search_link(name) {
+        var a = document.createElement('a');
+        var linkText = document.createTextNode(name);
+        a.appendChild(linkText);
+        a.title = name;
+        a.href = server + '/by-id/' + version + '/' + name;
+        a.style = 'word-wrap:break-word;'
+        return a;
+    }
+
+    function construct_home() {
+        var div = document.getElementById('result');
+        span = initialize_section(div, 'welcome', 'Welcome to the Greengenes test server', true);
+
+        div.appendChild(span);
+        var text = 'Welcome to the Greengenes2 test server. We currently support search by species, ' +
+                   'by ASV (either sequence of MD5 hash), and looking up clades by their names. ' +
+                   'For example, please try the following queries: ';
+        span.appendChild(document.createTextNode(text));
+        var list = document.createElement('ul');
+        div.appendChild(list);
+
+        var li = document.createElement('li');
+        list.appendChild(li);
+        li.appendChild(search_link('Alloprevotella rava'));
+        
+        var li = document.createElement('li');
+        list.appendChild(li);
+        li.appendChild(search_link('TACGGAAGGTCCAGGCGTTATCCGGATTTATTGGGTTTAAAGGGAGCGTAGGCGGACGATTAAGTCAGCTGTGAAAGTTTGCGGCTCAACCGTAAAATTGCAGTTGAAACTGGTTGTCTTGAGTGCACGCAGGGATGTTGGAATTCATGGTGTAGCGGTGAAATGCTTAGATATCATGAAGAACTCCGATCGCGAAGGCA'));
+
+        var li = document.createElement('li');
+        list.appendChild(li);
+        li.appendChild(search_link('a31863de93360b9605d32909706d5a10'));
+    }
+
+    function describe_non_species_clade(data) {
+        var div = document.getElementById('result');
+        span = initialize_section(div, 'name', 'Clade summary', true);
+        div.appendChild(span);
+        simple_span(span, 'Name', data.name);  
+        span.appendChild(document.createElement('br'));
+
+        if(data.parent.length > 0) {
+            var text = 'Clade parent(s). A clade may have multiple parents if polyphyletic following tax2tree decoration.';
+            span.appendChild(document.createTextNode(text));
+            var list = document.createElement('ul');
+            div.appendChild(list);
+            for(var i=0; i < data.parent.length; i++) {
+                var li = document.createElement('li');
+                list.appendChild(li);
+                li.appendChild(search_link(data.parent[i]));
+            }
+        }
+
+        var text = 'Clade children';
+        span = document.createElement('span')
+        span.appendChild(document.createTextNode(text));
+        div.appendChild(span);
+        var list = document.createElement('ul');
+        div.appendChild(list);
+        var sorted = data.children.sort();
+        for(var i=0; i < sorted.length; i++) {
+            var li = document.createElement('li');
+            list.appendChild(li);
+            li.appendChild(search_link(sorted[i]));
+        }    
+    }
+
+    var server = "{2:?}";
+    var data = {1:?};
+
+    window.addEventListener("load", () => {
+        $('#search-form-version').attr('value', version);
+
+        if ('type' in data) {
+            if (data.type === 'asv-detail') {
+                describe_asv_data(data);    
+            } else if (data.type === 'species-clade') {
+                describe_clade_data(data);
+            } else if (data.type === 'error') {
+                describe_error(data);
+            } else if (data.type === 'lookup') {
+                describe_non_species_clade(data);
+            } else {
+                construct_home();
+            }
+        } else {
+            construct_home();
+        }
+        
+        $( "#searchInput" ).autocomplete({
+            source: function (request, response) {
+                clade_lookup(request.term).then(response);
+            }
+        }); 
+    });
+    
+    </script>
+
+</head>
+
+<body class="d-flex flex-column h-100">
+    <header>
+        <nav class="navbar navbar-expand-md navbar-dark fixed-top bg-dark">
+            <div class="container-fluid">
+                <a class="navbar-brand" href="#">Greengenes</a>
+                <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarCollapse" aria-controls="navbarCollapse" aria-expanded="false" aria-label="Toggle navigation">
+                    <span class="navbar-toggler-icon"></span>
+                </button>
+                <div class="collapse navbar-collapse" id="navbarCollapse">
+                    <ul class="navbar-nav me-auto mb-2 mb-md-0">
+                        <li class="nav-item">
+                            <a class="nav-link active" aria-current="page" href="/">Home</a>
+                        </li>
+                    </ul>
+                <form class="d-flex" action="/search" method="get" autocomplete="off">
+                    <div class="autocomplete">
+                        <input class="form-control me-2 ui-widget" id="searchInput" name="id" type="search" placeholder="Search" aria-label="Search">
+                        <input type="hidden" id="search-form-version" name="version"> 
+                    </div>
+                    <button class="btn btn-outline-success" type="submit">Search</button>
+                </form>
+                </div>
+            </div>
+        </nav>
+    </header>
+    <main class="flex-shrink-0">
+        <div class="container">
+            <div class="row">
+                <div class="col-xs-12" id="warnings"></div>
+            </div>
+            <div class="row">
+                <div class="col-md-8">
+                    <div id="result" class="row">
+                    </div>
+                    <div id="redbiom-map" class="map">
+                    </div>
+                </div>
+                <div id="redbiom-div" class="col-md-4 mt-5">
+                </div>
+            </div>
+        </div>
+    </main>
+    
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.0.2/dist/js/bootstrap.bundle.min.js" integrity="sha384-MrcW6ZMFYlzcLA8Nl+NtUVF0sA7MsXsP1UyJoMp4YLEuNSfAP+JcXn/tWtIaxVXM" crossorigin="anonymous"></script>
+
+</body>
+</html>

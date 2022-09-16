@@ -20,7 +20,6 @@ use lazy_static::lazy_static;
 use regex::Regex;
 use axum_extra::routing::SpaRouter;
 
-/// Simple program to greet a person
 #[derive(Parser, Debug)]
 #[clap(author, version, about, long_about = None)]
 struct Args {

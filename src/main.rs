@@ -154,8 +154,8 @@ async fn query_sequence(pool: SqlitePool, version: String, sequence: String) -> 
             let subseq = &sequence[..*trim];
             let subseq_id = resolve_id(subseq.to_owned());
             let res = query_id(pool.clone(), 
-                                                             version.clone(), 
-                                                             subseq_id).await;
+                               version.clone(), 
+                               subseq_id).await;
 
             match res {
                 Ok(result) => return Ok(result),
@@ -177,8 +177,8 @@ async fn by_id(
     info!(id);
     let resolved_id = resolve_id(id);
     let res = query_id(pool.clone(), 
-                                                     version.clone(), 
-                                                     resolved_id).await;
+                       version.clone(), 
+                       resolved_id).await;
     
     let foo = match res {
         Ok(result) => result.get("data"),
@@ -235,7 +235,9 @@ async fn clade_lookup(
 async fn query_clade_lookup(pool: SqlitePool, id: String) -> String {
     let like = format!("%__{}%", id.to_owned());
     info!(like);
-    let ids: Vec<String> = sqlx::query(r#"SELECT id FROM clade_lookup WHERE id LIKE $1 ORDER BY id LIMIT 100"#)
+    let ids: Vec<String> = sqlx::query(r#"SELECT id 
+                                          FROM clade_lookup 
+                                          WHERE id LIKE $1 ORDER BY id LIMIT 100"#)
         .bind(like)  
         .fetch_all(&pool)
         .await

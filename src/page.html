@@ -586,10 +586,10 @@
 
     function construct_home() {
         var div = document.getElementById('result');
-        span = initialize_section(div, 'welcome', 'Welcome to the Greengenes test server', true);
+        span = initialize_section(div, 'welcome', 'Welcome to the Greengenes2 server', true);
 
         div.appendChild(span);
-        var text = 'Welcome to the Greengenes2 test server. We currently support search by species, ' +
+        var text = 'Welcome to the Greengenes2 server. We currently support search by species, ' +
                    'by ASV (either sequence of MD5 hash), and looking up clades by their names. ' +
                    'For example, please try the following queries: ';
         span.appendChild(document.createTextNode(text));
@@ -607,6 +607,45 @@
         var li = document.createElement('li');
         list.appendChild(li);
         li.appendChild(search_link('a31863de93360b9605d32909706d5a10'));
+
+        var span2 = document.createElement('span')
+        var text2 = 'Raw data, and more information about Greengenes2, can be found at the URLs below:';
+        span2.appendChild(document.createTextNode(text2));
+        div.appendChild(span2);
+
+        var list2 = document.createElement('ul');
+        div.appendChild(list2);
+
+        var li2 = document.createElement('li');
+        list2.appendChild(li2);
+        var a = document.createElement('a');
+        li2.appendChild(a);
+        var linktext = document.createTextNode('Greengenes2 data files');
+        a.appendChild(linktext);
+        a.target = '_blank';
+        a.href = 'http://ftp.microbio.me/greengenes_release/current/';
+
+        var li2 = document.createElement('li');
+        list2.appendChild(li2);
+        var a = document.createElement('a');
+        li2.appendChild(a);
+        var linktext = document.createTextNode('A QIIME 2 compatible plugin');
+        a.appendChild(linktext);
+        a.target = '_blank';
+        a.href = 'https://github.com/biocore/q2-greengenes2/';
+        
+        var li2 = document.createElement('li');
+        list2.appendChild(li2);
+        var a = document.createElement('a');
+        li2.appendChild(a);
+        var linktext = document.createTextNode('Greengenes2 data processing');
+        a.appendChild(linktext);
+        a.target = '_blank';
+        a.href = 'https://github.com/biocore/greengenes2/';
+
+        var text3 = document.createElement('p');
+        text3.innerHTML = 'Please direct any questions or concerns to <a href="mailto:d3mcdonald@eng.ucsd.edu">d3mcdonald@eng.ucsd.edu</a>.';
+        div.appendChild(text3);
     }
 
     function describe_non_species_clade(data) {
